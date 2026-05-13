@@ -1,0 +1,574 @@
+// ==============================================
+// PMS - Property Management System
+// Prisma Schema
+// ==============================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  OWNER
+  BRANCH_MANAGER
+  STAFF
+  HOUSEKEEPER
+}
+
+enum PropertyType {
+  APARTMENT
+  HOTEL
+}
+
+enum RentalMode {
+  DAILY
+  MONTHLY
+  FLEXIBLE
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_ORDER
+}
+
+enum RoomType {
+  STANDARD
+  DELUXE
+  SUITE
+  STUDIO
+  ONE_BED
+  TWO_BED
+  PENTHOUSE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingSource {
+  WALK_IN
+  PHONE
+  WEBSITE
+  BOOKING_COM
+  AGODA
+  OTHER
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+  PENDING
+}
+
+enum DepositStatus {
+  HELD
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FORFEITED
+}
+
+enum DepositType {
+  SECURITY
+  KEY
+  OTHER
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CREDIT_CARD
+  QR_CODE
+  OTHER
+}
+
+enum MeterType {
+  WATER
+  ELECTRIC
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+/// ผู้ใช้งานระบบ (Owner, Branch Manager, Staff, Housekeeper)
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  avatar    String?
+  role      UserRole @default(STAFF)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  branches            UserBranch[]
+  assignedTasks       HousekeepingTask[] @relation("AssignedTo")
+  reportedTickets     MaintenanceTicket[] @relation("ReportedBy")
+  assignedTickets     MaintenanceTicket[] @relation("AssignedTicketTo")
+
+  @@map("users")
+}
+
+/// Pivot table: User ↔ Branch (many-to-many)
+model UserBranch {
+  id        String   @id @default(cuid())
+  userId    String
+  branchId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@map("user_branches")
+}
+
+/// Property: กลุ่มอสังหาริมทรัพย์ (Apartment หรือ Hotel)
+model Property {
+  id          String       @id @default(cuid())
+  name        String
+  type        PropertyType
+  address     String?      // ที่อยู่
+  taxId       String?      // เลขประจำตัวผู้เสียภาษี
+  phone       String?
+  email       String?
+  description String?
+  logo        String?
+  isSetupComplete Boolean  @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  branches Branch[]
+
+  @@map("properties")
+}
+
+/// สาขา (Branch) ภายใต้ Property
+model Branch {
+  id         String   @id @default(cuid())
+  propertyId String
+  name       String
+  address    String?
+  phone      String?
+  email      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  property       Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rooms          Room[]
+  users          UserBranch[]
+  seasonalPrices SeasonalPrice[]
+  inventoryItems InventoryItem[]
+  invoices       Invoice[]
+  settings       BranchSettings?
+  bankAccounts   BankAccount[]
+
+  @@map("branches")
+}
+
+/// ห้อง/ยูนิต
+model Room {
+  id          String     @id @default(cuid())
+  branchId    String
+  number      String
+  floor       Int
+  type        RoomType   @default(STANDARD)
+  status      RoomStatus @default(AVAILABLE)
+  rentalMode  RentalMode @default(DAILY)
+  basePrice   Float                          // ราคารายวัน
+  monthlyRate Float?                         // ราคารายเดือน (null = ไม่มี)
+  size        Float?     // ขนาดห้อง (ตร.ม.)
+  amenities   Json?      // สิ่งอำนวยความสะดวก
+  notes       String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  branch            Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  bookings          Booking[]
+  contracts         Contract[]
+  utilityMeters     UtilityMeter[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
+
+  @@unique([branchId, number])
+  @@map("rooms")
+}
+
+/// ลูกค้า
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  idCard      String?  @unique
+  passport    String?
+  phone       String?
+  email       String?
+  nationality String?  @default("TH")
+  address     String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  bookings  Booking[]
+  contracts Contract[]
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+/// การจอง
+model Booking {
+  id          String        @id @default(cuid())
+  roomId      String
+  customerId  String
+  checkIn     DateTime
+  checkOut    DateTime
+  status      BookingStatus @default(PENDING)
+  source      BookingSource @default(WALK_IN)
+  adults      Int           @default(1)
+  children    Int           @default(0)
+  totalAmount Float
+  notes       String?
+  otaRef      String?       // OTA reference number (Hotel only)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  room           Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payments       Payment[]
+  serviceCharges ServiceCharge[]
+
+  @@map("bookings")
+}
+
+/// สัญญาเช่า (Apartment only)
+model Contract {
+  id          String         @id @default(cuid())
+  roomId      String
+  customerId  String
+  startDate   DateTime
+  endDate     DateTime
+  monthlyRent Float
+  status      ContractStatus @default(PENDING)
+  terms       String?        // เงื่อนไขเพิ่มเติม
+  document    String?        // ไฟล์สัญญา
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Relations
+  room           Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  deposits       Deposit[]
+  serviceCharges ServiceCharge[]
+
+  @@map("contracts")
+}
+
+/// เงินมัดจำ/ประกัน (Apartment only)
+model Deposit {
+  id             String        @id @default(cuid())
+  contractId     String
+  type           DepositType   @default(SECURITY)
+  amount         Float
+  refundedAmount Float         @default(0)
+  status         DepositStatus @default(HELD)
+  notes          String?
+  receivedAt     DateTime      @default(now())
+  refundedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relations
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("deposits")
+}
+
+/// มิเตอร์น้ำ-ไฟ (Apartment only)
+model UtilityMeter {
+  id              String    @id @default(cuid())
+  roomId          String
+  meterType       MeterType
+  periodMonth     DateTime  // เดือนที่บันทึก (YYYY-MM-01)
+  previousReading Float
+  currentReading  Float
+  unitUsed        Float     // currentReading - previousReading
+  ratePerUnit     Float
+  totalAmount     Float     // unitUsed * ratePerUnit
+  recordedAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, meterType, periodMonth])
+  @@map("utility_meters")
+}
+
+/// ราคาตามฤดูกาล
+model SeasonalPrice {
+  id        String   @id @default(cuid())
+  branchId  String
+  roomType  RoomType
+  name      String   // e.g. "High Season", "New Year"
+  startDate DateTime
+  endDate   DateTime
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("seasonal_prices")
+}
+
+/// ตั้งค่าระดับสาขา (ค่าน้ำ-ไฟ, มัดจำ, รอบบิล)
+model BranchSettings {
+  id              String   @id @default(cuid())
+  branchId        String   @unique
+
+  // เวลา Check-in / Check-out
+  defaultCheckIn  String   @default("14:00")
+  defaultCheckOut String   @default("12:00")
+
+  // ค่าไฟฟ้า
+  electricRate    Float    @default(8.0)     // บาท/หน่วย
+  electricMin     Float    @default(0)       // ค่าขั้นต่ำ
+
+  // ค่าน้ำประปา
+  waterRate       Float    @default(18.0)    // บาท/หน่วย
+  waterMin        Float    @default(0)       // ค่าขั้นต่ำ
+  waterIsFlat     Boolean  @default(false)   // true = เหมาจ่าย
+  waterFlatAmount Float?                     // จำนวนเหมาจ่าย
+
+  // รอบบิล
+  billingDay      Int      @default(25)      // ออกบิลวันที่
+  dueDays         Int      @default(10)      // ครบกำหนดชำระใน X วัน
+
+  // มัดจำ
+  securityDepositMonths Int @default(2)      // เก็บมัดจำกี่เดือน
+  advancePayMonths      Int @default(1)      // จ่ายล่วงหน้ากี่เดือน
+
+  // Housekeeping
+  monthlyCleaningPerWeek Int @default(1)     // รายเดือนทำฟรี/สัปดาห์
+
+  // ค่าบริการเสริมรายเดือน
+  commonFee       Float?   // ค่าส่วนกลาง/เดือน
+  parkingFee      Float?   // ค่าที่จอดรถ/เดือน
+  internetFee     Float?   // ค่าอินเทอร์เน็ต/เดือน
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("branch_settings")
+}
+
+/// ค่าบริการเพิ่มเติม
+model ServiceCharge {
+  id          String   @id @default(cuid())
+  bookingId   String?
+  contractId  String?
+  description String
+  amount      Float
+  quantity    Int      @default(1)
+  total       Float    // amount * quantity
+  chargedAt   DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  booking  Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("service_charges")
+}
+
+/// งาน Housekeeping
+model HousekeepingTask {
+  id            String       @id @default(cuid())
+  roomId        String
+  assignedToId  String?
+  status        TaskStatus   @default(PENDING)
+  priority      TaskPriority @default(MEDIUM)
+  scheduledDate DateTime
+  completedAt   DateTime?
+  checklist     Json?        // [{ item: "ทำความสะอาดห้องน้ำ", done: true }, ...]
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Relations
+  room       Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  assignedTo User? @relation("AssignedTo", fields: [assignedToId], references: [id])
+
+  @@map("housekeeping_tasks")
+}
+
+/// แจ้งซ่อม / Maintenance
+model MaintenanceTicket {
+  id           String       @id @default(cuid())
+  roomId       String
+  reportedById String
+  assignedToId String?
+  title        String
+  description  String?
+  status       TicketStatus @default(OPEN)
+  priority     TaskPriority @default(MEDIUM)
+  cost         Float?
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  room       Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  reportedBy User  @relation("ReportedBy", fields: [reportedById], references: [id])
+  assignedTo User? @relation("AssignedTicketTo", fields: [assignedToId], references: [id])
+
+  @@map("maintenance_tickets")
+}
+
+/// สต็อก/อุปกรณ์
+model InventoryItem {
+  id        String   @id @default(cuid())
+  branchId  String
+  name      String
+  category  String?
+  quantity  Int      @default(0)
+  unit      String   @default("ชิ้น")
+  minStock  Int      @default(0)
+  cost      Float?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_items")
+}
+
+/// ใบแจ้งหนี้
+model Invoice {
+  id         String        @id @default(cuid())
+  number     String        @unique
+  branchId   String
+  customerId String
+  items      Json          // [{ description, qty, price, total }]
+  subtotal   Float
+  tax        Float         @default(0)
+  total      Float
+  status     InvoiceStatus @default(DRAFT)
+  dueDate    DateTime?
+  issuedAt   DateTime      @default(now())
+  paidAt     DateTime?
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  // Relations
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+/// การชำระเงิน
+model Payment {
+  id          String        @id @default(cuid())
+  invoiceId   String?
+  bookingId   String?
+  amount      Float
+  method      PaymentMethod @default(CASH)
+  referenceNo String?
+  notes       String?
+  paidAt      DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+/// บัญชีธนาคาร
+model BankAccount {
+  id          String   @id @default(cuid())
+  branchId    String
+  bankName    String   // ชื่อธนาคาร
+  accountName String   // ชื่อบัญชี
+  accountNo   String   // เลขบัญชี
+  promptPay   String?  // เลข PromptPay (ถ้ามี)
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("bank_accounts")
+}
