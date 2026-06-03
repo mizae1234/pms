@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 process.env.TZ = "Asia/Bangkok";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   serverExternalPackages: ["pg"],
 };
 

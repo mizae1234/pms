@@ -1,0 +1,15 @@
+services:
+  app:
+    container_name: pms-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - TZ=Asia/Bangkok
